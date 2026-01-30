@@ -4,18 +4,32 @@ import React, { useMemo, useState } from "react";
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 async function apiFetch(path, { method = "GET", body, accessToken } = {}) {
-  const headers = { "Content-Type": "application/json" };
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  try {
+    if (!API_BASE) {
+      return {
+        ok: false,
+        status: 0,
+        data: { error: "VITE_API_BASE_URL is missing (API_BASE is undefined)" },
+      };
+    }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+    const headers = { "Content-Type": "application/json" };
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
-  const data = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, data };
+    const res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    // This catches CORS / network / invalid URL errors
+    return { ok: false, status: 0, data: { error: err.message || "Fetch failed" } };
+  }
 }
+
 
 // refresh helper
 async function refreshAccessToken(refreshToken) {
