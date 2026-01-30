@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from "react";
 
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 async function apiFetch(path, { method = "GET", body, accessToken } = {}) {
@@ -25,35 +24,43 @@ async function apiFetch(path, { method = "GET", body, accessToken } = {}) {
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, data };
   } catch (err) {
-    // This catches CORS / network / invalid URL errors
-    return { ok: false, status: 0, data: { error: err.message || "Fetch failed" } };
+    return {
+      ok: false,
+      status: 0,
+      data: { error: err.message || "Fetch failed" },
+    };
   }
 }
 
-
 // refresh helper
 async function refreshAccessToken(refreshToken) {
-  const res = await apiFetch("/auth/refresh", {
+  return apiFetch("/auth/refresh", {
     method: "POST",
     body: { refreshToken },
   });
-  return res;
 }
 
 export default function App() {
   const [signup, setSignup] = useState({ name: "", email: "", password: "" });
   const [login, setLogin] = useState({ email: "", password: "" });
-  console.log("APP LOADED", API_BASE);
 
-  const [accessToken, setAccessToken] = useState(localStorage.getItem("accessToken") || "");
-  const [refreshToken, setRefreshToken] = useState(localStorage.getItem("refreshToken") || "");
+  const [accessToken, setAccessToken] = useState(
+    localStorage.getItem("accessToken") || ""
+  );
+  const [refreshToken, setRefreshToken] = useState(
+    localStorage.getItem("refreshToken") || ""
+  );
 
   const [me, setMe] = useState(null);
-  const [message, setMessage] = useState("");
+  const [adminStats, setAdminStats] = useState(null);
 
+  const [message, setMessage] = useState("");
   const [pw, setPw] = useState({ oldPassword: "", newPassword: "" });
 
-  const isAuthed = useMemo(() => !!accessToken && !!refreshToken, [accessToken, refreshToken]);
+  const isAuthed = useMemo(
+    () => !!accessToken && !!refreshToken,
+    [accessToken, refreshToken]
+  );
 
   function saveTokens({ accessToken: at, refreshToken: rt }) {
     setAccessToken(at);
@@ -66,6 +73,7 @@ export default function App() {
     setAccessToken("");
     setRefreshToken("");
     setMe(null);
+    setAdminStats(null);
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
   }
@@ -74,8 +82,16 @@ export default function App() {
     e.preventDefault();
     setMessage("Signing up...");
 
-    const res = await apiFetch("/auth/signup", { method: "POST", body: signup });
-    if (!res.ok) return setMessage(`Signup failed (${res.status}): ${res.data.error || "unknown"}`);
+    const res = await apiFetch("/auth/signup", {
+      method: "POST",
+      body: signup,
+    });
+
+    if (!res.ok) {
+      return setMessage(
+        `Signup failed (${res.status}): ${res.data.error || "unknown"}`
+      );
+    }
 
     setMessage("Signup successful ✅ Now login.");
   }
@@ -84,15 +100,26 @@ export default function App() {
     e.preventDefault();
     setMessage("Logging in...");
 
-    const res = await apiFetch("/auth/login", { method: "POST", body: login });
-    if (!res.ok) return setMessage(`Login failed (${res.status}): ${res.data.error || "unknown"}`);
+    const res = await apiFetch("/auth/login", {
+      method: "POST",
+      body: login,
+    });
 
-    // your backend returns accessToken + refreshToken
-    saveTokens({ accessToken: res.data.accessToken, refreshToken: res.data.refreshToken });
+    if (!res.ok) {
+      return setMessage(
+        `Login failed (${res.status}): ${res.data.error || "unknown"}`
+      );
+    }
+
+    saveTokens({
+      accessToken: res.data.accessToken,
+      refreshToken: res.data.refreshToken,
+    });
+
     setMessage("Login successful ✅");
   }
 
-  // calls /me; if 401, tries refresh once and retries /me
+  // calls /me; if 401, refresh once and retry
   async function loadMe() {
     setMessage("Loading /me ...");
 
@@ -110,14 +137,48 @@ export default function App() {
       setAccessToken(newAT);
       localStorage.setItem("accessToken", newAT);
 
-      // retry /me
       res = await apiFetch("/me", { accessToken: newAT });
     }
 
-    if (!res.ok) return setMessage(`GET /me failed (${res.status}): ${res.data.error || "unknown"}`);
+    if (!res.ok) {
+      return setMessage(
+        `GET /me failed (${res.status}): ${res.data.error || "unknown"}`
+      );
+    }
 
     setMe(res.data.user);
     setMessage("Loaded /me ✅");
+  }
+
+  async function loadAdminStats() {
+    setMessage("Loading /admin/stats ...");
+    setAdminStats(null);
+
+    let res = await apiFetch("/admin/stats", { accessToken });
+
+    if (res.status === 401 && refreshToken) {
+      const refreshed = await refreshAccessToken(refreshToken);
+
+      if (!refreshed.ok) {
+        clearTokens();
+        return setMessage("Session expired. Please login again.");
+      }
+
+      const newAT = refreshed.data.accessToken;
+      setAccessToken(newAT);
+      localStorage.setItem("accessToken", newAT);
+
+      res = await apiFetch("/admin/stats", { accessToken: newAT });
+    }
+
+    if (!res.ok) {
+      return setMessage(
+        `GET /admin/stats failed (${res.status}): ${res.data.error || "unknown"}`
+      );
+    }
+
+    setAdminStats(res.data);
+    setMessage("Loaded admin stats ✅");
   }
 
   async function handleChangePassword(e) {
@@ -132,6 +193,7 @@ export default function App() {
 
     if (res.status === 401 && refreshToken) {
       const refreshed = await refreshAccessToken(refreshToken);
+
       if (!refreshed.ok) {
         clearTokens();
         return setMessage("Session expired. Please login again.");
@@ -148,7 +210,11 @@ export default function App() {
       });
     }
 
-    if (!res.ok) return setMessage(`Change password failed (${res.status}): ${res.data.error || "unknown"}`);
+    if (!res.ok) {
+      return setMessage(
+        `Change password failed (${res.status}): ${res.data.error || "unknown"}`
+      );
+    }
 
     setPw({ oldPassword: "", newPassword: "" });
     setMessage("Password changed ✅ (now login with your new password)");
@@ -157,7 +223,6 @@ export default function App() {
   async function handleLogout() {
     setMessage("Logging out...");
 
-    // invalidate refresh token on backend
     if (refreshToken) {
       await apiFetch("/auth/logout", {
         method: "POST",
@@ -170,11 +235,27 @@ export default function App() {
   }
 
   return (
-    <div style={{ fontFamily: "system-ui", padding: 16, maxWidth: 900, margin: "0 auto" }}>
+    <div
+      style={{
+        fontFamily: "system-ui",
+        padding: 16,
+        maxWidth: 900,
+        margin: "0 auto",
+      }}
+    >
       <h1>Backend Bootcamp Frontend</h1>
-      <p><b>API:</b> {API_BASE}</p>
+      <p>
+        <b>API:</b> {API_BASE || "(missing VITE_API_BASE_URL)"}
+      </p>
 
-      <div style={{ padding: 12, border: "1px solid #ddd", borderRadius: 8, marginBottom: 16 }}>
+      <div
+        style={{
+          padding: 12,
+          border: "1px solid #ddd",
+          borderRadius: 8,
+          marginBottom: 16,
+        }}
+      >
         <b>Status:</b> {message || "—"}
       </div>
 
@@ -203,11 +284,15 @@ export default function App() {
                 placeholder="password"
                 type="password"
                 value={signup.password}
-                onChange={(e) => setSignup({ ...signup, password: e.target.value })}
+                onChange={(e) =>
+                  setSignup({ ...signup, password: e.target.value })
+                }
                 style={{ width: "100%", padding: 8 }}
               />
             </div>
-            <button type="submit" style={{ padding: "8px 12px" }}>Signup</button>
+            <button type="submit" style={{ padding: "8px 12px" }}>
+              Signup
+            </button>
           </form>
         </section>
 
@@ -227,18 +312,39 @@ export default function App() {
                 placeholder="password"
                 type="password"
                 value={login.password}
-                onChange={(e) => setLogin({ ...login, password: e.target.value })}
+                onChange={(e) =>
+                  setLogin({ ...login, password: e.target.value })
+                }
                 style={{ width: "100%", padding: 8 }}
               />
             </div>
-            <button type="submit" style={{ padding: "8px 12px" }}>Login</button>
+            <button type="submit" style={{ padding: "8px 12px" }}>
+              Login
+            </button>
           </form>
 
           <div style={{ marginTop: 12 }}>
-            <button onClick={loadMe} disabled={!isAuthed} style={{ padding: "8px 12px", marginRight: 8 }}>
+            <button
+              onClick={loadMe}
+              disabled={!isAuthed}
+              style={{ padding: "8px 12px", marginRight: 8 }}
+            >
               Load /me
             </button>
-            <button onClick={handleLogout} disabled={!refreshToken} style={{ padding: "8px 12px" }}>
+
+            <button
+              onClick={loadAdminStats}
+              disabled={!isAuthed}
+              style={{ padding: "8px 12px", marginRight: 8 }}
+            >
+              Load Admin Stats
+            </button>
+
+            <button
+              onClick={handleLogout}
+              disabled={!refreshToken}
+              style={{ padding: "8px 12px" }}
+            >
               Logout
             </button>
           </div>
@@ -253,6 +359,17 @@ export default function App() {
           </pre>
         ) : (
           <p>No user loaded yet.</p>
+        )}
+      </section>
+
+      <section style={{ padding: 12, border: "1px solid #ddd", borderRadius: 8, marginTop: 16 }}>
+        <h2>Admin Stats (/admin/stats)</h2>
+        {adminStats ? (
+          <pre style={{ background: "#f7f7f7", padding: 12, borderRadius: 8, overflowX: "auto" }}>
+            {JSON.stringify(adminStats, null, 2)}
+          </pre>
+        ) : (
+          <p>No admin stats loaded.</p>
         )}
       </section>
 
@@ -288,7 +405,8 @@ export default function App() {
       <section style={{ marginTop: 16, fontSize: 14, opacity: 0.8 }}>
         <p>
           Notes: This demo stores tokens in <code>localStorage</code> for simplicity.
-          In a real app you’d typically store refresh tokens in an <code>httpOnly</code> cookie.
+          In a real app you’d typically store refresh tokens in an{" "}
+          <code>httpOnly</code> cookie.
         </p>
       </section>
     </div>
