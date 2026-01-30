@@ -1,0 +1,13 @@
+# Backend Bootcamp Frontend
+
+Simple React frontend demonstrating authentication and protected API access.
+
+## Features
+- Signup & login
+- JWT access + refresh token handling
+- Protected /me endpoint
+- Password update
+- Connects to deployed backend API
+
+## Backend API
+https://backend-bootcamp-c3l1.onrender.com
